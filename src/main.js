@@ -12,12 +12,12 @@ import config from '../config.js';
         process.exit(0);
     }
 
-    const articles = await axios.get(journal.enter_link+'/list');
+    const articles = await axios.get(journal.enter_link+'/posts/list');
     const posts_count = journal.posts_count;
     const page_size = articles.data.page_size;
     let id = 1;
     for (let i = Math.ceil(posts_count/page_size); i >= 1; i--) {
-        const page = await axios.get(journal.enter_link+'/list?page='+i);
+        const page = await axios.get(journal.enter_link+'/posts/list?page='+i);
         const pageData = page.data.data.reverse();
 
         // Check if data folder exists
