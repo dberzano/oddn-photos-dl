@@ -32,10 +32,12 @@ function getCompletedPostIds(dataDir) {
     for (const entry of entries) {
         const entryPath = `${dataDir}/${entry}`;
         if (!fs.statSync(entryPath).isDirectory()) continue;
-        const idFile = `${entryPath}/id.txt`;
-        if (fs.existsSync(idFile)) {
-            const postId = fs.readFileSync(idFile, 'utf-8').trim();
-            if (postId) ids.add(postId);
+        const metaFile = `${entryPath}/meta.json`;
+        if (fs.existsSync(metaFile)) {
+            try {
+                const meta = JSON.parse(fs.readFileSync(metaFile, 'utf-8'));
+                if (meta.id) ids.add(String(meta.id));
+            } catch {}
         }
     }
     return ids;
@@ -167,17 +169,15 @@ async function downloadFile(url, destPath, maxRetries = 20) {
                 fs.mkdirSync(postDir);
             }
 
-            // Write id.txt
-            fs.writeFileSync(`${postDir}/id.txt`, postId);
-
             // Get and parse description
             const content = pageData[j].content.replaceAll('<br />', '').replaceAll('<br>', '');
-            fs.writeFileSync(`${postDir}/message.txt`, content);
 
-            // Set timestamp on message.txt
-            if (parsedDate) {
-                fs.utimesSync(`${postDir}/message.txt`, parsedDate, parsedDate);
-            }
+            // Initialize meta object
+            const meta = {
+                id: postId,
+                message: content,
+                files: []
+            };
 
             // get post details
             console.log(`    Fetching post details for ${postId}...`);
@@ -201,22 +201,24 @@ async function downloadFile(url, destPath, maxRetries = 20) {
 
                 let filePath;
 
+                const remoteSrc = currentData.data.files[k].src;
+
                 // YouTube links -> misc/youtube_N.txt
-                if (currentData.data.files[k].src.includes('youtube.com')) {
+                if (remoteSrc.includes('youtube.com')) {
                     youtubeCounter++;
                     const miscDir = `${postDir}/misc`;
                     if (!fs.existsSync(miscDir)) {
                         fs.mkdirSync(miscDir);
                     }
                     filePath = `${miscDir}/youtube_${pad(youtubeCounter)}.txt`;
-                    const content = 'https:'+currentData.data.files[k].src;
+                    const content = 'https:'+remoteSrc;
                     fs.writeFileSync(filePath, content);
                 } else if (type === 'image' || type === 'doc') {
                     // Images and videos go at toplevel
                     mediaCounter++;
                     filePath = `${postDir}/${pad(mediaCounter)}.${ext}`;
 
-                    if (!await downloadFile(currentData.data.files[k].src, filePath)) {
+                    if (!await downloadFile(remoteSrc, filePath)) {
                         downloadFailed = true;
                         continue;
                     }
@@ -229,7 +231,7 @@ async function downloadFile(url, destPath, maxRetries = 20) {
                     }
                     filePath = `${miscDir}/${pad(miscCounter)}.${ext}`;
 
-                    if (!await downloadFile(currentData.data.files[k].src, filePath)) {
+                    if (!await downloadFile(remoteSrc, filePath)) {
                         downloadFailed = true;
                         continue;
                     }
@@ -239,6 +241,10 @@ async function downloadFile(url, destPath, maxRetries = 20) {
                     continue;
                 }
 
+                // Track file in meta
+                const localRel = filePath.replace(`${postDir}/`, '');
+                meta.files.push({ local: localRel, remote: remoteSrc });
+
                 // Set file timestamp
                 if (parsedDate) {
                     fs.utimesSync(filePath, parsedDate, parsedDate);
@@ -246,6 +252,12 @@ async function downloadFile(url, destPath, maxRetries = 20) {
 
                 // Download counter
                 console.log(`    Download ${type} ${k+1}/${totalFiles} - ${ext}`);
+            }
+
+            // Write meta.json
+            fs.writeFileSync(`${postDir}/meta.json`, JSON.stringify(meta, null, 2));
+            if (parsedDate) {
+                fs.utimesSync(`${postDir}/meta.json`, parsedDate, parsedDate);
             }
 
             if (downloadFailed) {
